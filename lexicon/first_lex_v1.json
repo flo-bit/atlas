@@ -1,0 +1,63 @@
+{
+	"lexicon": 1,
+	"id": "zz.yy.xx",
+	"description": "A geo pic",
+	"defs": {
+		"image": {
+			"type": "object",
+			"required": ["image", "latitude", "longitude"],
+			"properties": {
+				"image": {
+					"type": "blob",
+					"accept": ["image/*"],
+					"maxSize": 1000000
+				},
+				"latitude": {
+					"type": "string"
+				},
+				"longitude": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string",
+					"description": "The name of the location."
+				},
+				"fsq_place_id": {
+					"type": "string",
+					"description": "The unique identifier of a Foursquare POI."
+				},
+				"osm_place_id": {
+					"type": "string",
+					"description": "The unique identifier of a Foursquare POI."
+				},
+				"altitude": {
+					"type": "string"
+				},
+				"alt": {
+					"type": "string",
+					"description": "Alt text description of the image, for accessibility."
+				},
+				"aspectRatio": {
+					"type": "ref",
+					"ref": "app.bsky.embed.defs#aspectRatio"
+				},
+				"original_ref": {
+					"type": "string",
+					"description": "if copied from other user"
+				},
+				"license": {
+					"type": "string",
+					"description": "image licence default to CC0"
+				},
+				"attribution": {
+					"type": "string",
+					"description": "what to put into attribution"
+				},
+				"source": {
+					"type": "string",
+					"description": "source if image from somewhere on the internet"
+				}
+			}
+		}
+	}
+}

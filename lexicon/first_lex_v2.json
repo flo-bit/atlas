@@ -1,0 +1,80 @@
+{
+	"lexicon": 1,
+	"id": "pics.atmo.atlas.v0",
+	"description": "Geo pics",
+	"defs": {
+		"main": {
+			"type": "object",
+			"required": ["images", "location", "mainPoiUri", "license"],
+			"properties": {
+				"images": {
+					"type": "array",
+					"items": {
+						"type": "ref",
+						"ref": "#image"
+					}
+				},
+				"location": {
+					"type": "array",
+					"items": {
+						"refs": ["community.lexicon.location.geo"],
+						"type": "union"
+					}
+				},
+				"name": {
+					"type": "string",
+					"description": "The name of the location."
+				},
+				"mainPoiUri": {
+					"type": "ref",
+					"ref": "#poi",
+					"description": "main uri to map provider"
+				},
+				"otherPoiUris": {
+					"type": "array",
+					"items": {
+						"type": "ref",
+						"ref": "#poi"
+					}
+				},
+				"license": {
+					"type": "string",
+					"description": "image license default to CC0"
+				},
+				"attribution": {
+					"type": "string",
+					"description": "what to put into attribution"
+				}
+			}
+		},
+		"image": {
+			"type": "object",
+			"required": ["image"],
+			"properties": {
+				"image": {
+					"type": "blob",
+					"accept": ["image/*"],
+					"maxSize": 1000000
+				},
+				"aspectRatio": {
+					"type": "ref",
+					"ref": "app.bsky.embed.defs#aspectRatio"
+				},
+				"alt": {
+					"type": "string",
+					"description": "Alt text description of the image, for accessibility."
+				}
+			}
+		},
+		"poi": {
+			"type": "object",
+			"required": ["uri"],
+			"properties": {
+				"uri": {
+					"type": "string",
+					"description": "uri to osm or other map data provider, in the format of {provider}://{type}//{id} e.g. osm://node/XYZ"
+				}
+			}
+		}
+	}
+}
