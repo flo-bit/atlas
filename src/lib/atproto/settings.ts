@@ -2,7 +2,7 @@ import { dev } from '$app/environment';
 
 export const SITE = 'https://atlas.atmo.pics';
 
-export const MAIN_COLLECTION = 'pics.atmo.atlas.v0';
+export const MAIN_COLLECTION = dev ? 'pics.atmo.atlas.dev' : 'pics.atmo.atlas.v0';
 
 type Permissions = {
 	collections: readonly string[];

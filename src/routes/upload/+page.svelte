@@ -4,13 +4,13 @@
 		getAllImages,
 		getImage,
 		updateImage,
+		deleteImage,
 		storedImageToBlob,
 		type StoredImage
 	} from '$lib/state/image-store.svelte';
 	import { nearbyPOIs, searchPOIs, type POI } from '$lib/poi';
 	import { uploadBlob, putRecord, createTID, user } from '$lib/atproto';
 	import { compressImage } from '$lib/atproto/image-helper';
-	import { cachePOIs, searchCachedPOIs, mergePOIs } from '$lib/state/poi-cache';
 	import { Command } from 'bits-ui';
 	import MapPicker from '$lib/components/MapPicker.svelte';
 	import ImageOverlay from '$lib/components/ImageOverlay.svelte';
@@ -51,22 +51,45 @@
 
 		const first = images[0];
 		if (first.exifGps) {
-			loadNearby(first.exifGps.latitude, first.exifGps.longitude);
+			loadNearby(first.exifGps.latitude, first.exifGps.longitude, first.id);
 		}
 	});
 
 	let query = $state('');
 	let showMapPicker = $state(false);
 	let showImageOverlay = $state(false);
-	let pois = $state<POI[]>([]);
-	let nearbyResults = $state<POI[]>([]);
-	let loading = $state(false);
+	let nearbyPois = $state<POI[]>([]);
+	let nearbyLoading = $state(false);
+	let nearbyError = $state(false);
+	let textSearchResults = $state<POI[] | null>(null);
+	let textSearchLoading = $state(false);
+	let pois = $derived(textSearchResults ?? nearbyPois);
+	let loading = $derived(nearbyLoading || textSearchLoading);
 	let searchCenter = $state<{ lat: number; lng: number } | null>(null);
 	let progress = $state(0);
 	let progressDuration = $state('0s');
 	let showProgress = $state(false);
-	let searchRadiusKm = $state(0.5);
-	const radiusOptions = [0.05, 0.5, 1, 2, 4, 6];
+
+	let currentAbort: AbortController | null = null;
+	let prefetchEntry: { imageId: string; promise: Promise<POI[]>; abort: AbortController } | null =
+		null;
+
+	function prefetchNext() {
+		for (let i = currentIndex + 1; i < images.length; i++) {
+			const img = images[i];
+			if (img.exifGps) {
+				const abort = new AbortController();
+				prefetchEntry = {
+					imageId: img.id,
+					promise: nearbyPOIs(img.exifGps.latitude, img.exifGps.longitude, {
+						signal: abort.signal
+					}),
+					abort
+				};
+				return;
+			}
+		}
+	}
 
 	function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
 		const R = 6371;
@@ -82,121 +105,106 @@
 		return km < 1 ? `${Math.round(km * 1000)}m` : `${km.toFixed(1)}km`;
 	}
 
-	let sortedPois = $derived(
-		searchCenter
-			? [...pois]
-					.sort((a, b) => {
-						const da = distanceKm(
-							searchCenter.lat,
-							searchCenter.lng,
-							Number(a.latitude),
-							Number(a.longitude)
-						);
-						const db = distanceKm(
-							searchCenter.lat,
-							searchCenter.lng,
-							Number(b.latitude),
-							Number(b.longitude)
-						);
-						return da - db;
-					})
-					.slice(0, 50)
-			: pois.slice(0, 50)
-	);
+	let sortedPois = $derived.by(() => {
+		const center = searchCenter;
+		if (!center) return pois.slice(0, 50);
+		return [...pois]
+			.sort((a, b) => {
+				const da = distanceKm(center.lat, center.lng, Number(a.latitude), Number(a.longitude));
+				const db = distanceKm(center.lat, center.lng, Number(b.latitude), Number(b.longitude));
+				return da - db;
+			})
+			.slice(0, 50);
+	});
 
 	// Debounced text search
 	$effect(() => {
 		const q = query;
 		if (q.length < 2) {
-			pois = nearbyResults;
-			loading = false;
+			textSearchResults = null;
 			return;
 		}
-		loading = true;
+		textSearchLoading = true;
 
-		// show cached matches instantly
 		const center = searchCenter;
-		const SEARCH_RADIUS_KM = searchRadiusKm;
-		let cached: POI[] = [];
-		searchCachedPOIs({
-			query: q,
-			lat: center?.lat,
-			lng: center?.lng,
-			radiusKm: center ? SEARCH_RADIUS_KM : undefined
-		}).then((results) => {
-			cached = results;
-			pois = results;
-		});
-
 		const timeout = setTimeout(async () => {
 			try {
-				const fresh = await searchPOIs(q, {
+				textSearchResults = await searchPOIs(q, {
 					proximity: center ? { latitude: center.lat, longitude: center.lng } : undefined
 				});
-				cachePOIs(fresh); // fire-and-forget
-				const filtered = center
-					? fresh.filter(
-							(p) =>
-								distanceKm(center.lat, center.lng, Number(p.latitude), Number(p.longitude)) <=
-								SEARCH_RADIUS_KM
-						)
-					: fresh;
-				pois = mergePOIs(cached, filtered);
 			} catch (e) {
 				console.error('Search failed:', e);
-				// cached results remain visible
 			} finally {
-				loading = false;
+				textSearchLoading = false;
 			}
 		}, 300);
-		return () => clearTimeout(timeout);
+		return () => {
+			clearTimeout(timeout);
+			textSearchLoading = false;
+			textSearchResults = null;
+		};
 	});
 
-	async function loadNearby(lat: number, lng: number) {
-		searchCenter = { lat, lng };
-		loading = true;
+	async function loadNearby(lat: number, lng: number, imageId?: string) {
+		// Cancel any in-flight request
+		currentAbort?.abort();
+		const abort = new AbortController();
+		currentAbort = abort;
 
-		// kick off progress bar: render at 0%, then animate to 75% over 3s
+		// Check for a valid prefetch, cancel stale ones
+		let prefetched: Promise<POI[]> | null = null;
+		if (imageId && prefetchEntry?.imageId === imageId) {
+			prefetched = prefetchEntry.promise;
+			prefetchEntry = null;
+		} else if (prefetchEntry) {
+			prefetchEntry.abort.abort();
+			prefetchEntry = null;
+		}
+
+		searchCenter = { lat, lng };
+		nearbyLoading = true;
+		nearbyError = false;
+
 		progress = 0;
 		progressDuration = '0s';
 		showProgress = true;
-		// wait for the bar to paint at 0% before starting the transition
 		await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 		progressDuration = '3s';
 		progress = 75;
 
-		// show cached results instantly
-		const cached = await searchCachedPOIs({ lat, lng, radiusKm: searchRadiusKm });
-		nearbyResults = cached;
-		pois = cached;
-
 		try {
-			const fresh = await nearbyPOIs(lat, lng, { radiusMeters: searchRadiusKm * 1000 });
-			cachePOIs(fresh); // fire-and-forget
-			const merged = mergePOIs(cached, fresh);
-			nearbyResults = merged;
-			pois = merged;
+			if (prefetched) {
+				try {
+					nearbyPois = await prefetched;
+				} catch {
+					nearbyPois = await nearbyPOIs(lat, lng, { signal: abort.signal });
+				}
+			} else {
+				nearbyPois = await nearbyPOIs(lat, lng, { signal: abort.signal });
+			}
 		} catch (e) {
+			if (e instanceof DOMException && e.name === 'AbortError') return;
 			console.error('Failed to load nearby POIs:', e);
-			// cached results remain visible
+			nearbyError = true;
 		} finally {
-			loading = false;
-			// snap to 100%
+			if (currentAbort !== abort) return; // superseded by a newer request
+			nearbyLoading = false;
 			progressDuration = '300ms';
 			progress = 100;
-			// hide bar after the animation finishes
 			setTimeout(() => {
 				showProgress = false;
 				progress = 0;
 				progressDuration = '0s';
 			}, 350);
+			if (!abort.signal.aborted && !nearbyError) prefetchNext();
 		}
 	}
 
 	function clearSearch() {
+		currentAbort?.abort();
 		searchCenter = null;
-		nearbyResults = [];
-		pois = [];
+		nearbyPois = [];
+		nearbyError = false;
 	}
 
 	let uploadQueue: Array<{ imageId: string; poi: POI }> = [];
@@ -281,13 +289,21 @@
 		}
 	}
 
+	function skip() {
+		deleteImage(current.id);
+		next();
+	}
+
 	function next() {
 		if (currentIndex < images.length - 1) {
 			currentIndex++;
 			query = '';
+			nearbyPois = [];
+			nearbyError = false;
+			searchCenter = null;
 			const img = images[currentIndex];
 			if (img.exifGps) {
-				loadNearby(img.exifGps.latitude, img.exifGps.longitude);
+				loadNearby(img.exifGps.latitude, img.exifGps.longitude, img.id);
 			}
 		} else {
 			done = true;
@@ -451,26 +467,6 @@
 						</svg>
 					</button>
 				</div>
-
-				<!-- Radius picker -->
-				<div class="flex items-center gap-1.5 px-4 py-1">
-					<span class="text-base-400 dark:text-base-500 text-[10px] font-semibold">radius</span>
-					{#each radiusOptions as r}
-						<button
-							type="button"
-							class="rounded-full px-2.5 py-0.5 text-[10px] font-bold transition-colors {searchRadiusKm ===
-							r
-								? 'bg-accent-600 text-white'
-								: 'bg-base-100 text-base-500 hover:bg-base-200 dark:bg-base-800 dark:text-base-400 dark:hover:bg-base-700'}"
-							onclick={() => {
-								searchRadiusKm = r;
-								if (searchCenter) loadNearby(searchCenter.lat, searchCenter.lng);
-							}}
-						>
-							{r < 1 ? `${r * 1000}m` : `${r}km`}
-						</button>
-					{/each}
-				</div>
 			{/if}
 
 			<!-- Progress bar -->
@@ -492,8 +488,19 @@
 				{/if}
 
 				{#if !loading && pois.length === 0 && (query.length >= 2 || searchCenter)}
-					<Command.Empty class="text-base-400 py-8 text-center text-sm">
-						No places found.
+					<Command.Empty class="flex flex-col items-center gap-3 py-8">
+						<span class="text-base-400 text-sm">No places found.</span>
+						{#if nearbyError && searchCenter}
+							<button
+								type="button"
+								class="text-accent-600 hover:text-accent-500 text-xs font-semibold"
+								onclick={() => {
+									if (searchCenter) loadNearby(searchCenter.lat, searchCenter.lng);
+								}}
+							>
+								Retry
+							</button>
+						{/if}
 					</Command.Empty>
 				{/if}
 
@@ -552,7 +559,7 @@
 			<button
 				type="button"
 				class="text-base-400 hover:text-base-600 dark:text-base-500 dark:hover:text-base-300 text-xs font-semibold"
-				onclick={next}
+				onclick={skip}
 			>
 				Skip
 			</button>
