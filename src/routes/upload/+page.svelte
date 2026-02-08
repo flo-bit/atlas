@@ -13,6 +13,7 @@
 	import { compressImage } from '$lib/atproto/image-helper';
 	import { Command } from 'bits-ui';
 	import MapPicker from '$lib/components/MapPicker.svelte';
+	import UploadMap from '$lib/components/UploadMap.svelte';
 	import ImageOverlay from '$lib/components/ImageOverlay.svelte';
 	import AddImagesButton from '$lib/components/AddImagesButton.svelte';
 	import { MAIN_COLLECTION } from '$lib/atproto/settings';
@@ -58,6 +59,7 @@
 	let query = $state('');
 	let showMapPicker = $state(false);
 	let showImageOverlay = $state(false);
+	let hoveredPoi = $state<POI | null>(null);
 	let nearbyPois = $state<POI[]>([]);
 	let nearbyLoading = $state(false);
 	let nearbyError = $state(false);
@@ -66,6 +68,11 @@
 	let pois = $derived(textSearchResults ?? nearbyPois);
 	let loading = $derived(nearbyLoading || textSearchLoading);
 	let searchCenter = $state<{ lat: number; lng: number } | null>(null);
+	let mapCenter = $derived(
+		current?.exifGps
+			? { lat: current.exifGps.latitude, lng: current.exifGps.longitude }
+			: searchCenter
+	);
 	let progress = $state(0);
 	let progressDuration = $state('0s');
 	let showProgress = $state(false);
@@ -341,228 +348,272 @@
 		</a>
 	</div>
 {:else if current}
-	<div class="bg-base-50 dark:bg-base-950 relative flex h-dvh flex-col">
-		<!-- Header: image preview + counter -->
-		<div class="border-base-200 dark:border-base-800 flex items-center gap-4 border-b px-4 py-3">
-			{#if previewUrls.get(current.id)}
-				<button type="button" onclick={() => (showImageOverlay = true)} class="shrink-0">
-					<img src={previewUrls.get(current.id)} alt="" class="h-14 w-14 rounded-lg object-cover" />
-				</button>
-			{/if}
-			<span class="text-base-600 dark:text-base-400 text-sm font-bold">
-				{currentIndex + 1}/{total}
-			</span>
-			{#if current.exifGps}
-				<span class="text-[10px] font-semibold text-green-600 dark:text-green-400">GPS</span>
-			{/if}
-			{#if uploading}
-				<span class="text-base-400 dark:text-base-500 ml-auto text-[10px] font-semibold">
-					uploading {Math.round((uploadsDone / uploadsTotal) * 100)}%
+	<div class="bg-base-50 dark:bg-base-950 relative flex h-dvh flex-col lg:flex-row">
+		<!-- Left column: search + POI list -->
+		<div class="flex flex-1 flex-col overflow-hidden lg:max-w-md">
+			<!-- Header: image preview + counter (mobile only) -->
+			<div
+				class="border-base-200 dark:border-base-800 flex items-center gap-4 border-b px-4 py-3 lg:hidden"
+			>
+				{#if previewUrls.get(current.id)}
+					<button type="button" onclick={() => (showImageOverlay = true)} class="shrink-0">
+						<img
+							src={previewUrls.get(current.id)}
+							alt=""
+							class="h-14 w-14 rounded-lg object-cover"
+						/>
+					</button>
+				{/if}
+				<span class="text-base-600 dark:text-base-400 text-sm font-bold">
+					{currentIndex + 1}/{total}
 				</span>
-			{/if}
-		</div>
+				{#if current.exifGps}
+					<span class="text-[10px] font-semibold text-green-600 dark:text-green-400">GPS</span>
+				{/if}
+				{#if uploading}
+					<span class="text-base-400 dark:text-base-500 ml-auto text-[10px] font-semibold">
+						uploading {Math.round((uploadsDone / uploadsTotal) * 100)}%
+					</span>
+				{/if}
+			</div>
 
-		<Command.Root shouldFilter={false} class="flex flex-1 flex-col overflow-hidden">
-			<!-- Search bar -->
-			<div class="flex flex-col gap-3 px-4 py-3">
-				<div class="relative">
+			<Command.Root shouldFilter={false} class="flex flex-1 flex-col overflow-hidden">
+				<!-- Search bar -->
+				<div class="flex flex-col gap-3 px-4 py-3">
+					<div class="relative">
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							class="text-base-400 absolute top-1/2 left-3 z-10 h-4 w-4 -translate-y-1/2"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+							/>
+						</svg>
+						<Command.Input
+							placeholder="Search for a place..."
+							class="border-base-300 text-base-900 placeholder-base-400 focus:border-accent-500 dark:border-base-600 dark:bg-base-900 dark:text-base-100 dark:placeholder-base-500 w-full rounded-xl border bg-white py-2.5 pr-4 pl-9 text-sm focus:outline-none"
+							bind:value={query}
+						/>
+					</div>
+
+					<!-- Action buttons -->
+					<div class="flex gap-2">
+						<button
+							type="button"
+							class="text-base-700 ring-base-200 hover:bg-base-100 dark:bg-base-900 dark:text-base-300 dark:ring-base-700 dark:hover:bg-base-800 flex flex-1 items-center justify-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold shadow-sm ring-1 active:scale-[0.98]"
+							onclick={() => {
+								navigator.geolocation.getCurrentPosition(
+									(pos) => loadNearby(pos.coords.latitude, pos.coords.longitude),
+									(err) => console.error('Geolocation error:', err)
+								);
+							}}
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								class="h-4 w-4 text-blue-600"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+								/>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+								/>
+							</svg>
+							Nearby
+						</button>
+						<button
+							type="button"
+							class="text-base-700 ring-base-200 hover:bg-base-100 dark:bg-base-900 dark:text-base-300 dark:ring-base-700 dark:hover:bg-base-800 flex flex-1 items-center justify-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold shadow-sm ring-1 active:scale-[0.98]"
+							onclick={() => (showMapPicker = true)}
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								class="h-4 w-4 text-orange-600"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z"
+								/>
+							</svg>
+							Pick on map
+						</button>
+					</div>
+				</div>
+
+				{#if searchCenter}
+					<div class="flex items-center gap-1.5 px-4">
+						<span class="text-base-400 dark:text-base-500 text-xs">
+							searching near {searchCenter.lat.toFixed(4)}, {searchCenter.lng.toFixed(4)}
+						</span>
+						<button
+							type="button"
+							aria-label="Clear search location"
+							class="text-base-400 hover:text-base-600 dark:text-base-500 dark:hover:text-base-300"
+							onclick={clearSearch}
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								class="h-3.5 w-3.5"
+								viewBox="0 0 20 20"
+								fill="currentColor"
+							>
+								<path
+									d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
+								/>
+							</svg>
+						</button>
+					</div>
+				{/if}
+
+				<!-- Progress bar -->
+				{#if showProgress}
+					<div class="bg-base-200 dark:bg-base-800 h-1 w-full overflow-hidden">
+						<div
+							class="bg-accent-600 h-full ease-out"
+							style="width: {progress}%; transition: width {progressDuration} ease-out;"
+						></div>
+					</div>
+				{/if}
+
+				<!-- POI list -->
+				<Command.List class="flex-1 overflow-y-auto px-4 pb-4">
+					{#if loading && pois.length === 0}
+						<Command.Loading class="text-base-500 py-8 text-center text-sm font-medium">
+							Loading places...
+						</Command.Loading>
+					{/if}
+
+					{#if !loading && pois.length === 0 && (query.length >= 2 || searchCenter)}
+						<Command.Empty class="flex flex-col items-center gap-3 py-8">
+							<span class="text-base-400 text-sm">No places found.</span>
+							{#if nearbyError && searchCenter}
+								<button
+									type="button"
+									class="text-accent-600 hover:text-accent-500 text-xs font-semibold"
+									onclick={() => {
+										if (searchCenter) loadNearby(searchCenter.lat, searchCenter.lng);
+									}}
+								>
+									Retry
+								</button>
+							{/if}
+						</Command.Empty>
+					{/if}
+
+					{#each sortedPois as poi (poi.name + poi.latitude + poi.longitude)}
+						{@const dist = searchCenter
+							? distanceKm(
+									searchCenter.lat,
+									searchCenter.lng,
+									Number(poi.latitude),
+									Number(poi.longitude)
+								)
+							: null}
+						<Command.Item
+							value="{poi.name} {poi.latitude},{poi.longitude}"
+							keywords={[
+								poi.category,
+								poi.address,
+								poi.category !== 'place' ? poi.category : ''
+							].filter(Boolean)}
+							onSelect={() => selectPoi(poi)}
+							onmouseenter={() => (hoveredPoi = poi)}
+							onmouseleave={() => (hoveredPoi = null)}
+							class="ring-base-100 hover:bg-base-100 hover:ring-base-300 data-selected:bg-base-100 data-selected:ring-base-300 dark:bg-base-900 dark:ring-base-800 dark:hover:bg-base-800 dark:data-selected:bg-base-800 mb-1.5 flex w-full cursor-pointer items-baseline gap-2 rounded-xl bg-white px-4 py-3 text-left shadow-sm ring-1 transition-colors"
+						>
+							<span class="text-base-900 dark:text-base-100 text-sm font-bold">{poi.name}</span>
+							{#if poi.category && poi.category !== 'place'}
+								<span
+									class="bg-base-100 text-base-500 dark:bg-base-800 dark:text-base-400 rounded-full px-2 py-0.5 text-[10px] font-bold"
+									>{poi.category}</span
+								>
+							{/if}
+							<span class="ml-auto flex items-center gap-2">
+								{#if dist !== null && !isNaN(dist)}
+									<span class="text-base-400 dark:text-base-500 text-[10px] font-semibold"
+										>{formatDist(dist)}</span
+									>
+								{/if}
+							</span>
+						</Command.Item>
+					{/each}
+				</Command.List>
+			</Command.Root>
+
+			<div class="flex items-center justify-between px-4 py-3">
+				<AddImagesButton>
 					<svg
 						xmlns="http://www.w3.org/2000/svg"
-						class="text-base-400 absolute top-1/2 left-3 z-10 h-4 w-4 -translate-y-1/2"
+						class={'h-4 w-4'}
 						fill="none"
 						viewBox="0 0 24 24"
 						stroke="currentColor"
 						stroke-width="2"
 					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-						/>
+						<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
 					</svg>
-					<Command.Input
-						placeholder="Search for a place..."
-						class="border-base-300 text-base-900 placeholder-base-400 focus:border-accent-500 dark:border-base-600 dark:bg-base-900 dark:text-base-100 dark:placeholder-base-500 w-full rounded-xl border bg-white py-2.5 pr-4 pl-9 text-sm focus:outline-none"
-						bind:value={query}
-					/>
-				</div>
+				</AddImagesButton>
 
-				<!-- Action buttons -->
-				<div class="flex gap-2">
-					<button
-						type="button"
-						class="text-base-700 ring-base-200 hover:bg-base-100 dark:bg-base-900 dark:text-base-300 dark:ring-base-700 dark:hover:bg-base-800 flex flex-1 items-center justify-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold shadow-sm ring-1 active:scale-[0.98]"
-						onclick={() => {
-							navigator.geolocation.getCurrentPosition(
-								(pos) => loadNearby(pos.coords.latitude, pos.coords.longitude),
-								(err) => console.error('Geolocation error:', err)
-							);
-						}}
-					>
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							class="h-4 w-4 text-blue-600"
-							fill="none"
-							viewBox="0 0 24 24"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+				<button
+					type="button"
+					class="text-base-400 hover:text-base-600 dark:text-base-500 dark:hover:text-base-300 text-xs font-semibold"
+					onclick={skip}
+				>
+					Skip
+				</button>
+			</div>
+		</div>
+
+		<!-- Right column: desktop only — image preview + map -->
+		<div class="border-base-200 dark:border-base-800 hidden flex-col border-l lg:flex lg:flex-1">
+			<div class="border-base-200 dark:border-base-800 border-b p-4">
+				<div class="flex items-center gap-3">
+					{#if previewUrls.get(current.id)}
+						<button type="button" onclick={() => (showImageOverlay = true)} class="shrink-0">
+							<img
+								src={previewUrls.get(current.id)}
+								alt=""
+								class="h-60 w-60 rounded-xl object-cover"
 							/>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-							/>
-						</svg>
-						Nearby
-					</button>
-					<button
-						type="button"
-						class="text-base-700 ring-base-200 hover:bg-base-100 dark:bg-base-900 dark:text-base-300 dark:ring-base-700 dark:hover:bg-base-800 flex flex-1 items-center justify-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold shadow-sm ring-1 active:scale-[0.98]"
-						onclick={() => (showMapPicker = true)}
-					>
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							class="h-4 w-4 text-orange-600"
-							fill="none"
-							viewBox="0 0 24 24"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z"
-							/>
-						</svg>
-						Pick on map
-					</button>
+						</button>
+					{/if}
+					<div class="flex flex-col gap-1">
+						<span class="text-base-600 dark:text-base-400 text-sm font-bold">
+							{currentIndex + 1}/{total}
+						</span>
+						{#if current.exifGps}
+							<span class="text-[10px] font-semibold text-green-600 dark:text-green-400">GPS</span>
+						{/if}
+						{#if uploading}
+							<span class="text-base-400 dark:text-base-500 text-[10px] font-semibold">
+								uploading {Math.round((uploadsDone / uploadsTotal) * 100)}%
+							</span>
+						{/if}
+					</div>
 				</div>
 			</div>
-
-			{#if searchCenter}
-				<div class="flex items-center gap-1.5 px-4">
-					<span class="text-base-400 dark:text-base-500 text-xs">
-						searching near {searchCenter.lat.toFixed(4)}, {searchCenter.lng.toFixed(4)}
-					</span>
-					<button
-						type="button"
-						aria-label="Clear search location"
-						class="text-base-400 hover:text-base-600 dark:text-base-500 dark:hover:text-base-300"
-						onclick={clearSearch}
-					>
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							class="h-3.5 w-3.5"
-							viewBox="0 0 20 20"
-							fill="currentColor"
-						>
-							<path
-								d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
-							/>
-						</svg>
-					</button>
-				</div>
-			{/if}
-
-			<!-- Progress bar -->
-			{#if showProgress}
-				<div class="bg-base-200 dark:bg-base-800 h-1 w-full overflow-hidden">
-					<div
-						class="bg-accent-600 h-full ease-out"
-						style="width: {progress}%; transition: width {progressDuration} ease-out;"
-					></div>
-				</div>
-			{/if}
-
-			<!-- POI list -->
-			<Command.List class="flex-1 overflow-y-auto px-4 pb-4">
-				{#if loading && pois.length === 0}
-					<Command.Loading class="text-base-500 py-8 text-center text-sm font-medium">
-						Loading places...
-					</Command.Loading>
-				{/if}
-
-				{#if !loading && pois.length === 0 && (query.length >= 2 || searchCenter)}
-					<Command.Empty class="flex flex-col items-center gap-3 py-8">
-						<span class="text-base-400 text-sm">No places found.</span>
-						{#if nearbyError && searchCenter}
-							<button
-								type="button"
-								class="text-accent-600 hover:text-accent-500 text-xs font-semibold"
-								onclick={() => {
-									if (searchCenter) loadNearby(searchCenter.lat, searchCenter.lng);
-								}}
-							>
-								Retry
-							</button>
-						{/if}
-					</Command.Empty>
-				{/if}
-
-				{#each sortedPois as poi (poi.name + poi.latitude + poi.longitude)}
-					{@const dist = searchCenter
-						? distanceKm(
-								searchCenter.lat,
-								searchCenter.lng,
-								Number(poi.latitude),
-								Number(poi.longitude)
-							)
-						: null}
-					<Command.Item
-						value="{poi.name} {poi.latitude},{poi.longitude}"
-						keywords={[
-							poi.category,
-							poi.address,
-							poi.category !== 'place' ? poi.category : ''
-						].filter(Boolean)}
-						onSelect={() => selectPoi(poi)}
-						class="ring-base-100 hover:bg-base-100 hover:ring-base-300 data-selected:bg-base-100 data-selected:ring-base-300 dark:bg-base-900 dark:ring-base-800 dark:hover:bg-base-800 dark:data-selected:bg-base-800 mb-1.5 flex w-full cursor-pointer items-baseline gap-2 rounded-xl bg-white px-4 py-3 text-left shadow-sm ring-1 transition-colors"
-					>
-						<span class="text-base-900 dark:text-base-100 text-sm font-bold">{poi.name}</span>
-						{#if poi.category && poi.category !== 'place'}
-							<span
-								class="bg-base-100 text-base-500 dark:bg-base-800 dark:text-base-400 rounded-full px-2 py-0.5 text-[10px] font-bold"
-								>{poi.category}</span
-							>
-						{/if}
-						<span class="ml-auto flex items-center gap-2">
-							{#if dist !== null && !isNaN(dist)}
-								<span class="text-base-400 dark:text-base-500 text-[10px] font-semibold"
-									>{formatDist(dist)}</span
-								>
-							{/if}
-						</span>
-					</Command.Item>
-				{/each}
-			</Command.List>
-		</Command.Root>
-
-		<div class="flex items-center justify-between px-4 py-3">
-			<AddImagesButton>
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					class={'h-4 w-4'}
-					fill="none"
-					viewBox="0 0 24 24"
-					stroke="currentColor"
-					stroke-width="2"
-				>
-					<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-				</svg>
-			</AddImagesButton>
-
-			<button
-				type="button"
-				class="text-base-400 hover:text-base-600 dark:text-base-500 dark:hover:text-base-300 text-xs font-semibold"
-				onclick={skip}
-			>
-				Skip
-			</button>
+			<div class="flex-1">
+				<UploadMap center={mapCenter} pois={sortedPois} {hoveredPoi} onselect={selectPoi} />
+			</div>
 		</div>
 	</div>
 
