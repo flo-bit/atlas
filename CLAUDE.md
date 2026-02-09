@@ -41,19 +41,19 @@ No test framework is configured.
 - **`$lib/atproto/methods.ts`** — AT Protocol API wrappers (putRecord, listRecords, uploadBlob, deleteRecord)
 - **`$lib/atproto/settings.ts`** — OAuth permissions config, PDS URLs, collection definitions (`pics.atmo.atlas.v0`)
 - **`$lib/state/image-store.svelte.ts`** — IndexedDB-backed image storage with reactive state
-- **`$lib/poi/`** — POI search: `nominatim.ts` (text search), `overpass.ts` (nearby POIs), `poi-cache.ts` (IndexedDB cache)
+- **`$lib/poi/`** — POI search: `nominatim.ts` (text search), `overpass.ts` (nearby POIs in 100m radius)
 - **`$lib/components/MapPicker.svelte`** — Interactive map with click-to-place location selection
 
 ### State Management
 
-- **IndexedDB** for persistent storage: images (database: `atp-geo-img`) and POI cache (database: `atp-geo-img-pois`)
+- **IndexedDB** for persistent storage: images (database: `atp-geo-img`)
 - **localStorage** for session data (`current-login`, `recent-logins`)
 - **Module-level Svelte runes** for reactive app state (auth, image store)
 
 ### External APIs
 
 - **Nominatim** (`nominatim.openstreetmap.org`) — POI text search (no auth, User-Agent header required)
-- **Overpass API** (`overpass-api.de`) — Nearby POI queries by category
+- **Overpass API** (`overpass-api.de`) — Nearby POI queries (100m radius)
 - **Bluesky Public API** (`public.api.bsky.app`) — Actor typeahead/autocomplete
 - **AT Protocol PDS** — User-specific endpoints, OAuth authenticated
 
