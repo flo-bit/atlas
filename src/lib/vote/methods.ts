@@ -38,16 +38,6 @@ export async function savePoi(subjectUri: string) {
 	return Promise.all([savePromise, upvotePromise]);
 }
 
-export async function unsavePoi(subjectUri: string) {
-	const rkey = `save-${getSubjectRkey(subjectUri)}`;
-	return deleteRecord({ collection: VOTE_COLLECTION, rkey });
-}
-
-export async function removeVote(subjectUri: string) {
-	const rkey = `vote-${getSubjectRkey(subjectUri)}`;
-	return deleteRecord({ collection: VOTE_COLLECTION, rkey });
-}
-
 export async function getUserVotes(): Promise<Map<string, VoteRecord>> {
 	const records = await listRecords({ collection: VOTE_COLLECTION, limit: 0 });
 	const votes = new Map<string, VoteRecord>();
